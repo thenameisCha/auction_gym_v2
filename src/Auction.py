@@ -15,7 +15,7 @@ def sigmoid(x):
 
 class Auction(gym.Env):
     def __init__(self, rng, agent, CTR_model, winrate_model, item_features, item_values, context_dim, context_dist):
-        super.__init__()
+        super(Auction, self).__init__()
         self.rng = rng
         self.agent = agent
 
@@ -23,6 +23,7 @@ class Auction(gym.Env):
         self.winrate_model = winrate_model
         self.item_features = item_features
         self.item_values = item_values
+        self.context_dim = context_dim
 
         self.context_low = CONTEXT_LOW * np.ones(self.context_dim)
         self.context_high = CONTEXT_HIGH * np.ones(self.context_dim)
@@ -31,9 +32,9 @@ class Auction(gym.Env):
         })
         self.action_space = Dict({
             'item' : Discrete(self.item_features.shape[0]),
-            'bid' : Box(low=BID_LOW, high=BID_HIGH)
+            ###################CHANGED#######################
+            'bid' : Box(low=BID_LOW, high=BID_HIGH, shape=(1,))
         })
-        self.context_dim = context_dim
         self.context_dist = context_dist # Gaussian, Bernoulli, Uniform
         self.gaussian_var = 1.0
         self.bernoulli_p = 0.5
@@ -51,7 +52,7 @@ class Auction(gym.Env):
         self.context = self.generate_context()
         return self.context
 
-    def setp(self, action):
+    def step(self, action):
         item = action['item']
         bid = action['bid']
         winrate = self.winrate_model(self.context, bid)
@@ -63,9 +64,9 @@ class Auction(gym.Env):
         max_value = np.max(self.item_values)
         b_grid = np.linspace(0.0, 1.0*max_value, 200)
         p_grid = self.winrate_model(self.context, b_grid)
-        expected_value = self.item_values * CTR
-        utility = p_grid * (np.max(expected_value) - b_grid)
-
+        ###########CHANGED#############
+        expected_value = self.item_values * CTR.squeeze()
+        utility = p_grid.squeeze() * (np.max(expected_value) - b_grid)
         info = {
             'true_CTR' : CTR[item],
             'win' : win,

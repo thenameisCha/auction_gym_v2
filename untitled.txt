@@ -1,0 +1,7 @@
+1. In models.py logistic regression method, why use context' * M * item ? Why not use sum(context' * M[a])
+2. What is S S0 S_inv? = covariance matrix?
+3. What is rng?
+4. Bidder initialize. Random initialize?
+5. Bidding is discretized?
+6. Winrate mode simulation???
+7. in main, what is item_features when parsing for allocator

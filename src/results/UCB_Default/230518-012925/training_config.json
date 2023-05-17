@@ -1,0 +1,15 @@
+{
+  "random_seed": 0,
+  "num_runs": 2,
+  "num_iter" : 10000,
+  "record_interval" : 10,
+  "update_interval" : 10,
+  "random_bidding" : "Gaussian 100 0.5",
+  "context_dim" : 10,
+  "feature_dim" : 10,
+  "context_distribution" : "Gaussian",
+  "CTR_mode" : "MLP",
+  "winrate_mode" : "MLP",
+
+  "output_dir": "results/FP_IPS_TS/"
+}

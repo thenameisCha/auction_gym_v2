@@ -27,12 +27,12 @@ def draw_features(rng, num_runs, feature_dim, agent_configs):
 
     for run in range(num_runs):
         temp = []
-        for k in range(agent_config['num_items']):
+        for k in range(agent_config['allocator']['kwargs']['num_items']):
             feature = rng.normal(0.0, 1.0, size=feature_dim)
             temp.append(feature)
         run2item_features[run] = np.stack(temp)
 
-        run2item_values[run] = np.ones((agent_config['num_items'],))
+        run2item_values[run] = np.ones((agent_config['allocator']['kwargs']['num_items'],))
 
     return run2item_features, run2item_values
 
@@ -40,9 +40,11 @@ def set_model_params(rng, CTR_mode, winrate_mode, context_dim, feature_dim):
     if CTR_mode=='bilinear':
         CTR_param = rng.normal(0.0, 1.0, size=(context_dim, feature_dim))
     elif CTR_mode=='MLP':
-        d = context_dim * feature_dim
+        ################CHANGED####################
+        d = context_dim + feature_dim
         w1 = rng.normal(0.0, 1.0, size=(d, d))
-        b1 = rng.normal(0.0, 1.0, size=(d, 1))
+        ################CHANGED##################
+        b1 = rng.normal(0.0, 1.0, size=(1, d))
         w2 = rng.normal(0.0, 1.0, size=(d, 1))
         b2 = rng.normal(0.0, 1.0, size=(1, 1))
         CTR_param = (w1, b1, w2, b2)
@@ -54,7 +56,8 @@ def set_model_params(rng, CTR_mode, winrate_mode, context_dim, feature_dim):
     elif winrate_mode=='MLP':
         d = context_dim + 1
         w1 = rng.normal(0.0, 1.0, size=(d, d))
-        b1 = rng.normal(0.0, 1.0, size=(d, 1))
+        ###################CHANGED#################3
+        b1 = rng.normal(0.0, 1.0, size=(1, d))
         w2 = rng.normal(0.0, 1.0, size=(d, 1))
         b2 = rng.normal(0.0, 1.0, size=(1, 1))
         winrate_param = (w1, b1, w2, b2)
@@ -130,12 +133,11 @@ if __name__ == '__main__':
     run2bidding_error = {}
     run2uncertainty = {}
 
-    run2item_features, run2item_values = draw_features(rng, num_runs, context_dim, feature_dim, agent_config)
+    run2item_features, run2item_values = draw_features(rng, num_runs, feature_dim, agent_config)
 
     for run in range(num_runs):
         item_features = run2item_features[run]
         item_values = run2item_values[run]
-
         allocator = eval(f"{allocator_type}(rng=rng, item_features=item_features{parse_kwargs(agent_config['allocator']['kwargs'])})")
         bidder = eval(f"{bidder_type}(rng=rng{parse_kwargs(agent_config['bidder']['kwargs'])})")
         
@@ -156,46 +158,53 @@ if __name__ == '__main__':
         context = auction.reset()
         contexts.append(context)
         for i in tqdm(range(num_iter), desc=f'run {run}'):
-            value = agent.item_values[item]
+            ###################CHANGED#######################
+            # value = agent.item_values[item]
             if isinstance(bidder, OracleBidder):
                 item, estimated_CTR = agent.select_item(context)
+                value = agent.item_values[item]
                 b_grid = np.linspace(0.1*value, 1.5*value, 200)
+                # b_grid = np.linspace(min(budget, 0.1*value), min(budget, 1.5*value), 200)
                 prob_win = auction.compute_winrate(context, b_grid)
                 item, bid, estimated_CTR, optimistic_CTR = agent.bid(context, value, prob_win, b_grid)
             else:
-                item, bid, estimated_CTR, optimistic_CTR = agent.bid(context)
+                    ############CHANGED#################
+                    ############ variable names have underbar_ added
+                item_, bid_, estimated_CTR_, optimistic_CTR_ = agent.bid(context)
+                value_ = agent.item_values[item_]
+            action = {'item' : item_, 'bid' : np.array([bid_])}
+            context_, reward_, _, _, info_ = auction.step(action)
             
-            action = {'item' : item, 'bid' : np.array([bid])}
-            context, reward, _, _, info = auction.step(action)
-            
-            items.append(item)
-            biddings.append(bid)
-            outcomes.append(info['outcome'])
+            items.append(item_)
+            biddings.append(bid_)
+            outcomes.append(info_['outcome'])
 
-            reward[run,i] = reward
-            regret[run,i] = info['regret']
-            
-            estimated_CTR[run,i] = estimated_CTR
-            win[run,i] = info['win']
-            optimal_selection[run,i] = info['optimal_selection']
-            optimal_reward[run,i] = info['optimal_reward']
-            optimistic_CTR_buffer[i%record_interval] = optimistic_CTR
-            true_CTR_buffer[i%record_interval] = info['true_CTR']
-            bidding_error_buffer[i%record_interval] = info['bidding_error']
-            
+            reward[run,i] = reward_
+            regret[run,i] = info_['regret']
+            estimated_CTR[run,i] = estimated_CTR_
+            win[run,i] = info_['win']
+            optimal_selection[run,i] = info_['optimal_selection']
+            optimal_reward[run,i] = info_['optimal_reward']
+            optimistic_CTR_buffer[i%record_interval] = optimistic_CTR_
+            true_CTR_buffer[i%record_interval] = info_['true_CTR']
+            bidding_error_buffer[i%record_interval] = info_['bidding_error']
+
 
             if (i+1)%agent.update_interval==0:
                 agent.update(np.array(contexts), np.array(items, dtype=int), np.array(biddings), win[run,:i+1],
                              np.array(outcomes, dtype=bool), estimated_CTR[run,:i+1], reward[run,:i+1])
-            
+ 
             if (i+1)%record_interval==0:
                 ind = int((i+1)/record_interval)-1
-                CTR_RMSE[run,ind] = np.sqrt(np.sum((estimated_CTR[run,i-record_interval:i]-true_CTR_buffer)**2)/record_interval)
-                CTR_bias[run,ind] = np.mean(estimated_CTR[run,i-record_interval:i]/(true_CTR_buffer+1e-6))
-                optimism_ratio[run,ind] = np.mean(optimistic_CTR_buffer/(estimated_CTR[run,i-record_interval:i]+1e-6))
+                ##############CHANGED################
+                CTR_RMSE[run,ind] = np.sqrt(np.sum((estimated_CTR[run,i+1-record_interval:i+1]-true_CTR_buffer)**2)/record_interval) # i+1-record_interval
+                ###############CHANGED#############
+                CTR_bias[run,ind] = np.mean(estimated_CTR[run,i+1-record_interval:i+1]/(true_CTR_buffer+1e-6)) # i+1
+                optimism_ratio[run,ind] = np.mean(optimistic_CTR_buffer/(estimated_CTR[run,i+1-record_interval:i+1]+1e-6)) # i+1
                 bidding_error.append(bidding_error_buffer)
                 bidding_error_buffer = np.zeros((record_interval))
-                uncertainty.append(agent.get_uncertainty())
+                ###########CHANGED##############
+                uncertainty.append(agent.allocator.get_uncertainty())
 
             contexts.append(context)
         run2bidding_error[run] = bidding_error
@@ -214,7 +223,14 @@ if __name__ == '__main__':
     regret = np.cumsum(stepwise_regret, axis=1)
 
     reward_df = numpy2df(reward, 'Reward')
-    reward_df.to_csv(experiment_id + '/reward.csv', index=False)
+    ###########CHANGED###############3
+    output_file = os.path.join(experiment_id, 'reward.csv')
+    output_dir = os.path.dirname(output_file)
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    reward_df.to_csv(output_file, index=False)
+    # reward_df.to_csv(experiment_id + '/reward.csv', index=False)
     plot_measure(reward_df, 'Reward', record_interval, experiment_id)
 
     cumulative_reward_df = numpy2df(cumulative_reward, 'Cumulative Reward')
@@ -224,15 +240,33 @@ if __name__ == '__main__':
     plot_measure(stepwise_regret_df, 'Stepwise Regret', record_interval, experiment_id)
 
     regret_df = numpy2df(regret, 'Regret')
-    regret_df.to_csv(experiment_id + '/regret.csv', index=False)
+        ###########CHANGED###############3
+    output_file = os.path.join(experiment_id, 'regret.csv')
+    output_dir = os.path.dirname(output_file)
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    regret_df.to_csv(output_file, index=False)
+    # regret_df.to_csv(experiment_id + '/regret.csv', index=False)
     plot_measure(reward_df, 'Regret', record_interval, experiment_id)
 
     optimal_selection_df = numpy2df(optimal_selection, 'Optimal Selection Rate')
-    optimal_selection_df.to_csv(experiment_id + '/optimal_selection_rate.csv', index=False)
+            ###########CHANGED###############3
+    output_file = os.path.join(experiment_id, 'optimal_selection_rate.csv')
+    output_dir = os.path.dirname(output_file)
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    optimal_selection_df.to_csv(output_file, index=False)
+    # optimal_selection_df.to_csv(experiment_id + '/optimal_selection_rate.csv', index=False)
     plot_measure(optimal_selection_df, 'Optimal Selection Rate', record_interval, experiment_id)
 
     prob_win_df = numpy2df(prob_win, 'Probability of Winning')
-    prob_win_df.to_csv(experiment_id + '/prob_win.csv', index=False)
+                ###########CHANGED###############3
+    output_file = os.path.join(experiment_id, 'prob_win.csv')
+    output_dir = os.path.dirname(output_file)
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    optimal_selection_df.to_csv(output_file, index=False)
+    # prob_win_df.to_csv(experiment_id + '/prob_win.csv', index=False)
     plot_measure(prob_win_df, 'Probability of Winning', record_interval, experiment_id)
 
     CTR_RMSE_df = numpy2df(CTR_RMSE, 'CTR RMSE')

@@ -9,7 +9,7 @@ class Bidder:
     """ Bidder base class"""
     def __init__(self, rng):
         self.rng = rng
-
+        # self.budget = 100
     def update(self, context, bid, won, name):
         raise NotImplementedError
     
@@ -22,14 +22,14 @@ class TruthfulBidder(Bidder):
         bid = value * (estimated_CTR + self.rng.normal(0,self.noise,1))
         return bid.item()
 
-class OracleBidder(Bidder):
+class OracleBidder(Bidder): # Baseline model. Comapare other bidders to this to measure performance
     def __init__(self, rng):
         super().__init__(rng)
 
     def bid(self, value, estimated_CTR, prob_win, b_grid):
         expected_value = value * estimated_CTR
     
-        estimated_utility = prob_win * (expected_value - b_grid)
+        estimated_utility = prob_win * (expected_value - b_grid) # E[U|x,a,b] = W(V-P)
         bid = b_grid[np.argmax(estimated_utility)]
 
         return bid
@@ -76,20 +76,21 @@ class DefaultBidder(Bidder):
         # Grid search over gamma
         n_values_search = int(value*100)
         b_grid = np.linspace(0.1*value, 1.5*value, n_values_search)
-        x = torch.Tensor(np.hstack([np.tile(context, ((n_values_search, 1))), b_grid.reshape(-1,1)])).to(self.device)
-
-        prob_win = self.winrate_model(x).numpy(force=True).ravel()
+        # b_grid = np.linspace(min(budget, 0.1*value), min(budget, 1.5*value), 200)
+        x = torch.Tensor(np.hstack([np.tile(context, ((n_values_search, 1))), b_grid.reshape(-1,1)])).to(self.device) # [context b] in each row
+    ##############CHANGED##################
+        prob_win = self.winrate_model(x).detach().cpu().resolve_conj().resolve_neg().numpy().ravel() # winrate vector
 
         estimated_utility = prob_win * (expected_value - b_grid)
-        bid = b_grid[np.argmax(estimated_utility)]
+        bid = b_grid[np.argmax(estimated_utility)] 
         
-        bid = np.clip(bid+self.rng.normal(0,self.noise)*value, 0.1*value, 1.5*value)
-
+        bid = np.clip(bid+self.rng.normal(0,self.noise)*value, 0.1*value, 1.5*value) 
+        # budget = budget - bid
         return bid
 
-    def update(self, context, bid, won, name):
-        X = np.hstack((context.reshape(-1,self.context_dim), bid.reshape(-1, 1)))
-        N = X.shape[0]
+    def update(self, context, bid, won, name): # learn from experience
+        X = np.hstack((context.reshape(-1,self.context_dim), bid.reshape(-1, 1))) # [context b] in each row
+        N = X.shape[0] # number of context bid data pairs
         X = torch.Tensor(X).to(self.device)
 
         y = won.astype(np.float32).reshape(-1,1)
@@ -106,3 +107,5 @@ class DefaultBidder(Bidder):
         self.winrate_model.eval()
 
 
+class ContextBandit(Bidder):
+    pass

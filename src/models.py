@@ -1,6 +1,8 @@
 import numpy as np
 import torch
 import torch.nn as nn
+###########CHANGED#############
+import torch.nn.functional as F 
 
 def sigmoid(x):
     return 1.0 / (1.0 + np.exp(-x))
@@ -27,7 +29,7 @@ class Bilinear:
     def __call__(self, context, features):
         return sigmoid(features @ self.M.T @ context / np.sqrt(len(context)*features.shape[1])).reshape(-1)
 
-class Winrate:
+class Winrate: # dependent on context and bid
     def __init__(self, mode, context_dim, param=None, agents=None):
         self.mode = mode
         self.context_dim = context_dim
@@ -43,32 +45,38 @@ class Winrate:
             pass
         else:
             if len(bid)==1:
-                return self.model(np.concatenate([context, bid]))
+                return self.model(np.concatenate([context, bid])) 
             else:
                 x =np.concatenate([
-                    np.tile(context.reshape(1,-1), (len(bid),len(context))),
+                    ###############CHANGED################
+                    np.tile(context.reshape(1,-1), (len(bid),1)),
                     bid.reshape(-1,1)
                 ], axis=1)
                 return self.model(x)
         
 class CTR:
-    def __init__(self, mode, context_dim, item_features, param):
+    def __init__(self, mode, context_dim, item_features, param): # item_features = ad
         self.mode = mode
         self.d = context_dim
         self.item_features = item_features
-        self.K = item_features.shape[0]
-        self.h = item_features.shape[1]
+        self.K = item_features.shape[0] # number of items
+        self.h = item_features.shape[1] # item feature dimension
         if mode=='bilinear':
             self.model = Bilinear(param)
         elif mode=='MLP':
-            pass
+            self.model = MLP(param)
     
     def __call__(self, context):
         if self.mode=='bilinear':
             return self.model(context, self.item_features)
         elif self.mode=='MLP':
-            pass
+            ##############CHANGED##################
+            return self.model(np.concatenate([
+                np.tile(context.reshape(1,-1), (len(self.item_features),1)),
+                self.item_features.reshape(self.K, self.h)
+            ], axis=1))
 
+                              
 class LogisticRegression(nn.Module):
     def __init__(self, context_dim, items, mode, rng, lr, c=1.0, nu=1.0):
         super().__init__()
@@ -111,12 +119,14 @@ class LogisticRegression(nn.Module):
             loss = self.loss(X, A, y)
             loss.backward()
             optimizer.step()
-    
-        y = self(X, A).numpy(force=True)
+    ##################CHANGED###############
+        # y = self(X,A).numpy(force = True)
+        y = self(X, A).detach().cpu().resolve_conj().resolve_neg().numpy()
         y = y * (1 - y)
         contexts = contexts.reshape(-1,self.d)
-
-        self.S_inv = self.S0_inv.numpy(force=True)
+###############CHANGED###################33
+        #self.S_inv = self.S0_inv.numpy(force=True)
+        self.S_inv = self.S0_inv.detach().cpu().resolve_conj().resolve_neg().numpy()
         for i in range(contexts.shape[0]):
             context = contexts[i]
             item_feature = self.items_np[A[i]]
@@ -128,7 +138,7 @@ class LogisticRegression(nn.Module):
     def loss(self, X, A, y):
         y_pred = self(X, A)
         m = self.flatten(self.M)
-        return self.BCE(y_pred, y) + torch.sum(m.T @ self.S0_inv @ m / 2)
+        return self.BCE(y_pred, y.reshape(y_pred.shape)) + torch.sum(m.T @ self.S0_inv @ m / 2)
     
     def estimate_CTR(self, context, UCB=False, TS=False):
         # context @ M @ item_feature = M * outer(context, item_feature)
@@ -142,7 +152,10 @@ class LogisticRegression(nn.Module):
                 m = self.flatten(self.M)
                 bound = self.c * torch.sum((X @ self.S) * X, dim=1, keepdim=True)
                 U = torch.sigmoid(X @ m + bound)
-                return U.numpy(force=True).reshape(-1)
+                ###################CHANGED#######################
+                # return U.numpy(force=True).reshape(-1) 
+                return U.detach().cpu().resolve_conj().resolve_neg().numpy().reshape(-1)
+
             elif TS:
                 m = self.flatten(self.M)
                 m = m + self.nu * self.sqrt_S @ torch.Tensor(self.rng.normal(0,1,self.d*self.h).reshape(-1,1)).to(self.device)
@@ -153,7 +166,8 @@ class LogisticRegression(nn.Module):
                 return torch.sigmoid(X @ m).numpy(force=True).reshape(-1)
 
     def get_uncertainty(self):
-        S_ = self.S.numpy(force=True)
+        ###########numpy(force = True)
+        S_ = self.S.detach().cpu().resolve_conj().resolve_neg().numpy()
         eigvals = np.linalg.eigvals(S_).reshape(-1)
         return eigvals.real
 

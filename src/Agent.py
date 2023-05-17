@@ -66,11 +66,11 @@ class Agent:
         if isinstance(self.bidder, OracleBidder):
             bid = self.bidder.bid(value, estimated_CTR, prob_win, b_grid)
         elif not isinstance(self.allocator, OracleAllocator) and self.should_explore():
-            if self.random_bidding_mode=='uniform':
+            if self.random_bidding_mode=='Uniform':
                 bid = self.rng.uniform(0, value*1.5)
-            elif self.random_bidding_mode=='overbidding-uniform':
+            elif self.random_bidding_mode=='Overbidding-uniform':
                 bid = self.rng.uniform(value*1.0, value*1.5)
-            elif self.random_bidding_mode=='gaussian':
+            elif self.random_bidding_mode=='Gaussian':
                 bid = self.bidder.bid(value, context, estimated_CTR)
                 bid += value * self.rng.normal(0, 0.5)
                 bid = np.maximum(bid, 0)

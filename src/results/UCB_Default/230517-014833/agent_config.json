@@ -1,0 +1,20 @@
+{
+    "name": "agent1",
+      "allocator": {
+        "type": "LogisticAllocator",
+        "kwargs": {
+            "lr": 0.01,
+            "context_dim" : 10,
+            "num_items" : 12,
+            "mode" : "UCB"
+        }
+      },
+      "bidder": {
+          "type": "DefaultBidder",
+          "kwargs": {
+            "lr" : 0.01,
+            "context_dim" : 10
+          }
+    },
+  "output_dir": "results/UCB_Default/"
+}
